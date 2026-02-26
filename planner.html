@@ -360,7 +360,8 @@
 
     <div id="debts-list"></div>
 
-    <div class="chart-card"><div class="card-title">Payoff Timeline</div><div class="card-sub">Remaining balance over time using <span id="d-method-label">Avalanche</span> method</div><canvas id="d-chart" height="180"></canvas></div>
+    <div class="chart-card"><div class="card-title">Total Balance Payoff</div><div class="card-sub">Combined remaining balance · Red = minimums only · Blue = with your extra payments</div><canvas id="d-chart" height="160"></canvas></div>
+    <div class="chart-card" style="margin-top:12px;"><div class="card-title">Individual Debt Payoff</div><div class="card-sub">Each line shows when that debt reaches $0 — updates live with extra payments</div><canvas id="d-per-chart" height="200"></canvas></div>
   </div>
 
   <!-- ══════════════ RETIREMENT ══════════════ -->
@@ -621,7 +622,7 @@ let debts = [
 ];
 let nextDebtId = 4;
 let debtMethod  = 'avalanche';
-let dChart;
+let dChart, dPerChart;
 
 const debtEmoji = {credit:'💳', car:'🚗', mortgage:'🏠', student:'🎓', medical:'🏥', personal:'👤', other:'📋'};
 const debtColors= {credit:'#f5e0db', car:'#f5edda', mortgage:'#dff0e5', student:'#ebe0f5', medical:'#dde8f5', personal:'#f0e8d8', other:'#f0e8d8'};
@@ -672,6 +673,32 @@ function calcPayoffSchedule(debts, totalPayment, method) {
   return { schedule, totalInterest: totalInterestPaid, months: schedule.length };
 }
 
+function calcPerDebtSchedules(debts, totalPayment, method) {
+  // Run the full simulation but track each debt's balance per month
+  let queue = debts.map(d=>({...d, bal: d.balance, extra: d.extraPayment||0}));
+  if (method === 'avalanche') queue.sort((a,b)=>b.rate-a.rate);
+  else queue.sort((a,b)=>a.bal-b.bal);
+
+  const minTotal    = queue.reduce((s,d)=>s+d.minPayment, 0);
+  const perDebtExtra= queue.reduce((s,d)=>s+d.extra, 0);
+  const poolExtra   = Math.max(0, totalPayment - minTotal - perDebtExtra);
+
+  // schedules[id] = array of monthly balances
+  const schedules = {};
+  queue.forEach(d=>{ schedules[d.id] = [Math.round(d.bal)]; });
+  const maxMonths = 360;
+
+  for (let m=0; m<maxMonths; m++) {
+    queue.forEach(d=>{ if(d.bal>0){ d.bal += d.bal*(d.rate/100/12); d.bal -= Math.min(d.bal, d.minPayment+(d.extra||0)); } });
+    let ex = poolExtra;
+    for (const d of queue) { if(d.bal>0&&ex>0){ const pay=Math.min(d.bal,ex); d.bal-=pay; ex-=pay; break; } }
+    queue.forEach(d=>{ if(d.bal<0.01)d.bal=0; });
+    queue.forEach(d=>{ schedules[d.id].push(Math.round(d.bal)); });
+    if (queue.every(d=>d.bal===0)) break;
+  }
+  return schedules;
+}
+
 function updateDebt() {
   const totalPayment = parseFloat(document.getElementById('d-payment').value)||0;
 
@@ -710,8 +737,15 @@ function updateDebt() {
   debts.forEach(d=>{
     const orderIdx = ordered.findIndex(o=>o.id===d.id)+1;
     const monthlyInterest = d.balance * (d.rate/100/12);
-    const singleMonths = d.minPayment > monthlyInterest ? Math.ceil(Math.log(d.minPayment/(d.minPayment-monthlyInterest)) / Math.log(1+d.rate/100/12)) : null;
-    const etaTxt = singleMonths ? (singleMonths<=12?singleMonths+' mo':(singleMonths/12).toFixed(1)+' yrs') : '∞ (min only)';
+    // Simulate min-only payoff (avoids brittle log formula edge cases)
+    let simBal = d.balance, simMo = 0;
+    while (simBal > 0.01 && simMo < 360) {
+      simBal += simBal * (d.rate / 100 / 12);
+      simBal -= Math.min(simBal, d.minPayment);
+      simMo++;
+    }
+    const singleMonths = simMo < 360 ? simMo : null;
+    const etaTxt = singleMonths ? (singleMonths<=12?singleMonths+' mo':(singleMonths/12).toFixed(1)+' yrs') : '∞ (payment too low)';
 
     // Per-debt payoff boost estimate
     const singleDebtExtra = [{...d, extraPayment: d.extraPayment||0}];
@@ -776,7 +810,7 @@ function updateDebt() {
     list.appendChild(card);
   });
 
-  // Chart - no-extra baseline vs current (with extras)
+  // ── Chart 1: Total balance (min only vs with extras) ──
   const hasExtra = debts.some(d=>(d.extraPayment||0)>0);
   const allMo = Math.max(months, moBase);
   const step2 = Math.max(1, Math.floor(allMo/14));
@@ -792,8 +826,8 @@ function updateDebt() {
     dChart=new Chart(document.getElementById('d-chart'),{
       type:'line',
       data:{labels:chartLabels,datasets:[
-        {label:'Minimum Payments',data:chartData,borderColor:'#c0614a',backgroundColor:'rgba(192,97,74,0.07)',fill:true,tension:0.4,pointRadius:2,pointBackgroundColor:'#c0614a',pointBorderColor:'white',pointBorderWidth:2},
-        {label:'With Extra Payments',data:chartDataX,borderColor:'#5b8ab0',backgroundColor:'rgba(91,138,176,0.07)',fill:true,tension:0.4,pointRadius:2,pointBackgroundColor:'#5b8ab0',pointBorderColor:'white',pointBorderWidth:2}
+        {label:'Minimums Only',data:chartData,borderColor:'#c0614a',backgroundColor:'rgba(192,97,74,0.06)',fill:true,tension:0.4,pointRadius:2,pointBackgroundColor:'#c0614a',pointBorderColor:'white',pointBorderWidth:2},
+        {label:'With Extra Payments',data:chartDataX,borderColor:'#5b8ab0',backgroundColor:'rgba(91,138,176,0.06)',fill:true,tension:0.4,pointRadius:2,pointBackgroundColor:'#5b8ab0',pointBorderColor:'white',pointBorderWidth:2}
       ]},
       options:{
         plugins:{legend:{display:true,labels:{font:{family:'DM Sans',size:11},color:'#7a6e62',boxWidth:10,padding:12,filter:item=>item.datasetIndex===0||hasExtra}}},
@@ -805,8 +839,58 @@ function updateDebt() {
     dChart.data.labels=chartLabels;
     dChart.data.datasets[0].data=chartData;
     dChart.data.datasets[1].data=chartDataX;
-    dChart.options.plugins.legend.labels.filter = item => item.datasetIndex===0||hasExtra;
+    dChart.options.plugins.legend.labels.filter = item=>item.datasetIndex===0||hasExtra;
     dChart.update();
+  }
+
+  // ── Chart 2: Per-debt individual payoff lines ──
+  const perSched = calcPerDebtSchedules(debts, totalPayment, debtMethod);
+  const palette  = ['#c0614a','#5b8ab0','#7a9e87','#c9a84c','#9b72b0','#e08a60','#4ab0a0','#b05b7a'];
+  const maxPerMo = Math.max(...debts.map(d=>{ const s=perSched[d.id]; return s?s.length:1; }));
+  const perStep  = Math.max(1, Math.floor(maxPerMo/16));
+  const perLabels= [];
+  for (let i=0; i<maxPerMo; i++) { if(i%perStep===0||i===maxPerMo-1) perLabels.push('Mo '+(i+1)); }
+
+  const perDatasets = debts.map((d,idx)=>{
+    const sched = perSched[d.id] || [];
+    const pts = [];
+    for (let i=0; i<maxPerMo; i++) { if(i%perStep===0||i===maxPerMo-1) pts.push(i<sched.length?sched[i]:0); }
+    const col = palette[idx % palette.length];
+    return {
+      label: d.name+(d.extraPayment>0?' +$'+d.extraPayment:''),
+      data: pts,
+      borderColor: col,
+      backgroundColor: col.replace(')',',0.04)').replace('rgb','rgba'),
+      fill: false,
+      tension: 0.4,
+      pointRadius: 2,
+      pointBackgroundColor: col,
+      pointBorderColor: 'white',
+      pointBorderWidth: 2,
+      borderWidth: 2
+    };
+  });
+
+  if(!dPerChart){
+    dPerChart=new Chart(document.getElementById('d-per-chart'),{
+      type:'line',
+      data:{labels:perLabels, datasets:perDatasets},
+      options:{
+        plugins:{
+          legend:{display:true,position:'bottom',labels:{font:{family:'DM Sans',size:11},color:'#7a6e62',boxWidth:10,padding:12}},
+          tooltip:{callbacks:{label:c=>c.dataset.label+': '+fmtFull(c.raw)}}
+        },
+        scales:{
+          x:{grid:{display:false},ticks:{font:{family:'DM Sans',size:11},color:'#7a6e62',maxTicksLimit:12}},
+          y:{grid:{color:'#f0e8d8'},ticks:{font:{family:'DM Sans',size:11},color:'#7a6e62',callback:v=>fmt(v)},min:0}
+        },
+        animation:{duration:400}
+      }
+    });
+  } else {
+    dPerChart.data.labels   = perLabels;
+    dPerChart.data.datasets = perDatasets;
+    dPerChart.update();
   }
 }
 
