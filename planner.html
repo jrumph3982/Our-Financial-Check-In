@@ -673,6 +673,20 @@ function calcPayoffSchedule(debts, totalPayment, method) {
   return { schedule, totalInterest: totalInterestPaid, months: schedule.length };
 }
 
+function syncExtraFromSlider(id, val) {
+  const num = parseInt(val)||0;
+  const numEl = document.getElementById('d-extra-num-'+id);
+  if (numEl) numEl.value = num;
+  updateDebtField(id, 'extraPayment', num);
+}
+
+function syncExtraFromNum(id, val) {
+  const num = Math.max(0, parseInt(val)||0);
+  const sliderEl = document.getElementById('d-extra-'+id);
+  if (sliderEl) sliderEl.value = Math.min(num, 500);
+  updateDebtField(id, 'extraPayment', num);
+}
+
 function calcPerDebtSchedules(debts, totalPayment, method) {
   // Run the full simulation but track each debt's balance per month
   let queue = debts.map(d=>({...d, bal: d.balance, extra: d.extraPayment||0}));
@@ -792,14 +806,22 @@ function updateDebt() {
         </div>
         <!-- Per-debt extra payment -->
         <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--warm);">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-            <div style="font-size:0.72rem;font-weight:500;color:#5b8ab0;text-transform:uppercase;letter-spacing:0.06em;">💙 Extra Monthly Payment</div>
-            <div style="font-family:'Playfair Display',serif;font-size:0.95rem;color:var(--deep);font-weight:700;" id="d-extra-val-${d.id}">${d.extraPayment>0?'+$'+d.extraPayment+'/mo':'none'}</div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
+            <div style="font-size:0.72rem;font-weight:500;color:#5b8ab0;text-transform:uppercase;letter-spacing:0.06em;flex-shrink:0;">💙 Extra Monthly Payment</div>
+            <div style="display:flex;align-items:center;gap:6px;margin-left:auto;">
+              <span style="font-size:0.9rem;color:var(--light-text);">$</span>
+              <input type="number" id="d-extra-num-${d.id}" min="0" step="25" value="${d.extraPayment||0}"
+                style="width:80px;border:1px solid var(--border);border-radius:8px;padding:5px 8px;font-family:'DM Sans',sans-serif;font-size:0.9rem;font-weight:500;color:var(--deep);background:var(--cream);outline:none;"
+                onchange="syncExtraFromNum(${d.id},this.value)"
+                onblur="syncExtraFromNum(${d.id},this.value)"
+                onfocus="this.style.borderColor='#5b8ab0'" onblur="this.style.borderColor='var(--border)';syncExtraFromNum(${d.id},this.value)">
+              <span style="font-size:0.8rem;color:var(--light-text);">/mo</span>
+            </div>
           </div>
-          <input type="range" id="d-extra-${d.id}" min="0" max="500" step="25" value="${d.extraPayment||0}"
-            oninput="updateDebtField(${d.id},'extraPayment',this.value); document.getElementById('d-extra-val-${d.id}').textContent=this.value>0?'+$'+this.value+'/mo':'none';">
-          <div style="display:flex;justify-content:space-between;font-size:0.68rem;color:var(--light-text);margin-top:3px;"><span>$0</span><span>+$125</span><span>+$250</span><span>+$375</span><span>+$500</span></div>
-          ${d.extraPayment>0 ? `<div id="d-impact-${d.id}" style="display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:10px;text-align:center;">
+          <input type="range" id="d-extra-${d.id}" min="0" max="500" step="25" value="${Math.min(d.extraPayment||0,500)}"
+            oninput="syncExtraFromSlider(${d.id},this.value)">
+          <div style="display:flex;justify-content:space-between;font-size:0.68rem;color:var(--light-text);margin-top:3px;"><span>$0</span><span>$125</span><span>$250</span><span>$375</span><span>$500+</span></div>
+          ${d.extraPayment>0 ? `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:10px;text-align:center;">
             <div style="background:var(--cream);border-radius:8px;padding:8px 6px;"><div style="font-size:0.62rem;color:var(--light-text);text-transform:uppercase;margin-bottom:2px;">Saves per year</div><div style="font-family:'Playfair Display',serif;font-size:0.9rem;color:var(--sage);font-weight:700;">${fmtFull(d.extraPayment*12*(d.rate/100))}</div></div>
             <div style="background:var(--cream);border-radius:8px;padding:8px 6px;"><div style="font-size:0.62rem;color:var(--light-text);text-transform:uppercase;margin-bottom:2px;">Total extra/yr</div><div style="font-family:'Playfair Display',serif;font-size:0.9rem;color:var(--deep);font-weight:700;">${fmtFull(d.extraPayment*12)}</div></div>
             <div style="background:var(--cream);border-radius:8px;padding:8px 6px;"><div style="font-size:0.62rem;color:var(--light-text);text-transform:uppercase;margin-bottom:2px;">Est. payoff boost</div><div style="font-family:'Playfair Display',serif;font-size:0.9rem;color:var(--sage);font-weight:700;">${extraBoostText}</div></div>
